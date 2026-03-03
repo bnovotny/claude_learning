@@ -8,14 +8,14 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #000;
+    background: #fff;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     font-family: 'Courier New', Courier, monospace;
-    color: #0f0;
+    color: #5C2C08;
     user-select: none;
   }
 
@@ -23,7 +23,7 @@
     font-size: 2rem;
     letter-spacing: 0.5rem;
     text-transform: uppercase;
-    text-shadow: 0 0 10px #0f0, 0 0 20px #0f0, 0 0 40px #0f0;
+    color: #7B3A10;
     margin-bottom: 12px;
   }
 
@@ -34,7 +34,7 @@
     margin-bottom: 8px;
     font-size: 0.85rem;
     letter-spacing: 0.1rem;
-    text-shadow: 0 0 6px #0f0;
+    color: #7B3A10;
   }
 
   #canvas-wrap {
@@ -44,11 +44,8 @@
 
   canvas {
     display: block;
-    border: 2px solid #0f0;
-    box-shadow:
-      0 0 8px #0f0,
-      0 0 20px #0a0,
-      inset 0 0 40px rgba(0,255,0,0.04);
+    border: 2px solid #7B3A10;
+    box-shadow: 0 2px 12px rgba(91,44,8,0.18);
     image-rendering: pixelated;
   }
 
@@ -60,33 +57,30 @@
 
   button {
     background: transparent;
-    border: 1px solid #0f0;
-    color: #0f0;
+    border: 1px solid #7B3A10;
+    color: #7B3A10;
     font-family: 'Courier New', Courier, monospace;
     font-size: 0.8rem;
     letter-spacing: 0.15rem;
     padding: 6px 18px;
     cursor: pointer;
     text-transform: uppercase;
-    text-shadow: 0 0 6px #0f0;
-    box-shadow: 0 0 6px rgba(0,255,0,0.3);
-    transition: background 0.1s, box-shadow 0.1s;
+    transition: background 0.1s;
   }
 
   button:hover {
-    background: rgba(0,255,0,0.12);
-    box-shadow: 0 0 12px rgba(0,255,0,0.6);
+    background: rgba(123,58,16,0.10);
   }
 
   button:active {
-    background: rgba(0,255,0,0.22);
+    background: rgba(123,58,16,0.20);
   }
 
   #hint {
     margin-top: 10px;
     font-size: 0.65rem;
     letter-spacing: 0.1rem;
-    color: #0a0;
+    color: #B8692A;
     text-align: center;
   }
 </style>
@@ -126,11 +120,11 @@ const MIN_MS    = 62;
 const SPEED_DEC = 5;
 
 const C = {
-  bg:         '#000000',
-  grid:       'rgba(0,80,0,0.18)',
-  overlay:    'rgba(0,0,0,0.72)',
-  textBright: '#00ff00',
-  textDim:    '#007700',
+  bg:         '#ffffff',
+  grid:       'rgba(123,58,16,0.10)',
+  overlay:    'rgba(255,255,255,0.82)',
+  textBright: '#7B3A10',
+  textDim:    '#B8692A',
 };
 
 // Dachshund palette
@@ -250,9 +244,6 @@ function drawBackground() {
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 2);
-
   ctx.strokeStyle = C.grid;
   ctx.lineWidth = 0.5;
   for (let x = 0; x <= COLS; x++) {
@@ -318,11 +309,8 @@ function drawDogHead(seg, facing) {
     ctx.beginPath(); ctx.ellipse(-2, -8.5, 4, 6, -0.18, 0, Math.PI * 2); ctx.fill();
 
     // Main head
-    ctx.shadowColor = '#7B3A10';
-    ctx.shadowBlur = 10;
     ctx.fillStyle = DOG.mid;
     ctx.beginPath(); ctx.ellipse(-1, 0, 8.5, 7.5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
 
     // Muzzle / snout
     ctx.fillStyle = DOG.snout;
@@ -407,7 +395,7 @@ function drawBone() {
   const cy = food.y * CELL + CELL / 2;
   const pulse = 0.5 + 0.5 * Math.sin(foodPulse * 0.005);
 
-  ctx.shadowColor = '#d4aa00';
+  ctx.shadowColor = '#B8692A';
   ctx.shadowBlur  = 6 + pulse * 10;
   ctx.fillStyle   = '#f0e8cc';
 
@@ -436,7 +424,7 @@ function drawOverlay(title, line1, line2) {
   ctx.fillRect(0, 0, W, H);
 
   ctx.textAlign = 'center';
-  ctx.shadowColor = '#00ff00';
+  ctx.shadowColor = '#7B3A10';
 
   ctx.shadowBlur = 18;
   ctx.fillStyle  = C.textBright;
