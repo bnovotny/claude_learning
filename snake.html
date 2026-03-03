@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DACHSHUND</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', Courier, monospace;
+    color: #5C2C08;
+    user-select: none;
+  }
+
+  h1 {
+    font-size: 2rem;
+    letter-spacing: 0.5rem;
+    text-transform: uppercase;
+    color: #7B3A10;
+    margin-bottom: 12px;
+  }
+
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    width: 480px;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+    letter-spacing: 0.1rem;
+    color: #7B3A10;
+  }
+
+  #canvas-wrap {
+    position: relative;
+    line-height: 0;
+  }
+
+  canvas {
+    display: block;
+    border: 2px solid #7B3A10;
+    box-shadow: 0 2px 12px rgba(91,44,8,0.18);
+    image-rendering: pixelated;
+  }
+
+  #controls {
+    display: flex;
+    gap: 16px;
+    margin-top: 14px;
+  }
+
+  button {
+    background: transparent;
+    border: 1px solid #7B3A10;
+    color: #7B3A10;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.15rem;
+    padding: 6px 18px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.1s;
+  }
+
+  button:hover {
+    background: rgba(123,58,16,0.10);
+  }
+
+  button:active {
+    background: rgba(123,58,16,0.20);
+  }
+
+  #hint {
+    margin-top: 10px;
+    font-size: 0.65rem;
+    letter-spacing: 0.1rem;
+    color: #B8692A;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Dachshund</h1>
+
+<div id="hud">
+  <span>SCORE: <span id="score-val">0</span></span>
+  <span>LEVEL: <span id="level-val">1</span></span>
+  <span>BEST: <span id="best-val">0</span></span>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="game" width="480" height="480"></canvas>
+</div>
+
+<div id="controls">
+  <button id="btn-start">Start</button>
+  <button id="btn-pause">Pause</button>
+  <button id="btn-restart">Restart</button>
+</div>
+
+<div id="hint">ARROW KEYS / WASD &nbsp;|&nbsp; SPACE = PAUSE</div>
+
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const COLS      = 20;
+const ROWS      = 20;
+const CELL      = 24;
+const W         = COLS * CELL;
+const H         = ROWS * CELL;
+
+const BASE_MS   = 150;
+const MIN_MS    = 62;
+const SPEED_DEC = 5;
+
+const C = {
+  bg:         '#ffffff',
+  grid:       'rgba(123,58,16,0.10)',
+  overlay:    'rgba(255,255,255,0.82)',
+  textBright: '#7B3A10',
+  textDim:    '#B8692A',
+};
+
+// Dachshund palette
+const DOG = {
+  body:    '#7B3A10',   // dark reddish-brown
+  mid:     '#9B4E1A',   // medium brown
+  belly:   '#C47830',   // warm tan/caramel
+  ear:     '#4E2208',   // very dark brown ear
+  snout:   '#B8692A',   // tan muzzle
+  nose:    '#110500',   // near-black nose
+  eye:     '#1a0800',   // dark eye
+  eyeHL:   '#ffffff',   // eye highlight
+  tail:    '#5C2C08',   // dark tail tip
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('game');
+const ctx     = canvas.getContext('2d');
+const scoreEl = document.getElementById('score-val');
+const levelEl = document.getElementById('level-val');
+const bestEl  = document.getElementById('best-val');
+const btnStart   = document.getElementById('btn-start');
+const btnPause   = document.getElementById('btn-pause');
+const btnRestart = document.getElementById('btn-restart');
+
+const DIR = { UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0] };
+
+let snake, dir, dirQueue, food, score, level, tickMs;
+let best = 0;
+let state = 'idle';
+
+let rafId     = null;
+let lastTick  = 0;
+let foodPulse = 0;
+
+// ─── Init / Reset ─────────────────────────────────────────────────────────────
+function initGame() {
+  snake    = [{ x:10, y:10 }, { x:9, y:10 }, { x:8, y:10 }, { x:7, y:10 }, { x:6, y:10 }];
+  dir      = DIR.RIGHT;
+  dirQueue = [];
+  score    = 0;
+  level    = 1;
+  tickMs   = BASE_MS;
+  spawnFood();
+  updateHUD();
+}
+
+function spawnFood() {
+  let pos;
+  do {
+    pos = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+  } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+  food = pos;
+}
+
+// ─── Game Loop ────────────────────────────────────────────────────────────────
+function loop(ts) {
+  rafId = requestAnimationFrame(loop);
+  foodPulse = ts;
+
+  if (state !== 'running') { render(); return; }
+
+  if (ts - lastTick >= tickMs) {
+    lastTick = ts;
+    tick();
+  }
+  render();
+}
+
+function tick() {
+  if (dirQueue.length > 0) {
+    const candidate = dirQueue.shift();
+    if (candidate[0] !== -dir[0] || candidate[1] !== -dir[1]) dir = candidate;
+  }
+
+  const head = snake[0];
+  const nx = ((head.x + dir[0]) + COLS) % COLS;
+  const ny = ((head.y + dir[1]) + ROWS) % ROWS;
+
+  for (let i = 0; i < snake.length - 1; i++) {
+    if (snake[i].x === nx && snake[i].y === ny) { endGame(); return; }
+  }
+
+  const ate = (nx === food.x && ny === food.y);
+  snake.unshift({ x: nx, y: ny });
+  if (!ate) {
+    snake.pop();
+  } else {
+    score += 10;
+    if (score > best) best = score;
+    tickMs = Math.max(MIN_MS, tickMs - SPEED_DEC);
+    level  = Math.floor((BASE_MS - tickMs) / SPEED_DEC) + 1;
+    spawnFood();
+    updateHUD();
+  }
+}
+
+function endGame() {
+  state = 'dead';
+  if (score > best) best = score;
+  updateHUD();
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawBone();
+  drawDachshund();
+
+  if (state === 'idle')   drawOverlay('DACHSHUND', '[ PRESS START ]', '');
+  if (state === 'paused') drawOverlay('PAUSED', '[ PRESS PAUSE TO RESUME ]', '');
+  if (state === 'dead')   drawOverlay('GAME OVER', `SCORE: ${score}`, '[ RESTART TO PLAY AGAIN ]');
+}
+
+function drawBackground() {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = C.grid;
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x <= COLS; x++) {
+    ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, H); ctx.stroke();
+  }
+  for (let y = 0; y <= ROWS; y++) {
+    ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
+  }
+}
+
+// ─── Dachshund Rendering ──────────────────────────────────────────────────────
+
+// Direction the segment is "facing" (toward the head)
+function getSegDir(from, to) {
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+  if (Math.abs(dx) > 1) dx = -Math.sign(dx);
+  if (Math.abs(dy) > 1) dy = -Math.sign(dy);
+  if (dx > 0) return DIR.RIGHT;
+  if (dx < 0) return DIR.LEFT;
+  if (dy > 0) return DIR.DOWN;
+  return DIR.UP;
+}
+
+function dirToAngle(d) {
+  if (d === DIR.RIGHT) return 0;
+  if (d === DIR.DOWN)  return Math.PI / 2;
+  if (d === DIR.LEFT)  return Math.PI;
+  return -Math.PI / 2;
+}
+
+// Run fn() with canvas translated+rotated to segment center facing given dir
+function withSeg(seg, d, fn) {
+  ctx.save();
+  ctx.translate(seg.x * CELL + CELL / 2, seg.y * CELL + CELL / 2);
+  ctx.rotate(dirToAngle(d));
+  fn();
+  ctx.restore();
+}
+
+function drawDachshund() {
+  const len = snake.length;
+  for (let i = len - 1; i >= 0; i--) {
+    const seg = snake[i];
+    const facing = (i === 0) ? dir : getSegDir(snake[i], snake[i - 1]);
+
+    if (i === 0) {
+      drawDogHead(seg, facing);
+    } else if (i === len - 1) {
+      drawDogTail(seg, facing);
+    } else {
+      drawDogBody(seg, facing, i);
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawDogHead(seg, facing) {
+  withSeg(seg, facing, () => {
+    // Floppy ears (behind/below head, drawn first so head overlaps)
+    ctx.fillStyle = DOG.ear;
+    ctx.beginPath(); ctx.ellipse(-2, 8.5, 4, 6, 0.18, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-2, -8.5, 4, 6, -0.18, 0, Math.PI * 2); ctx.fill();
+
+    // Main head
+    ctx.fillStyle = DOG.mid;
+    ctx.beginPath(); ctx.ellipse(-1, 0, 8.5, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Muzzle / snout
+    ctx.fillStyle = DOG.snout;
+    ctx.beginPath(); ctx.ellipse(7, 0.5, 5.5, 4, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Nose
+    ctx.fillStyle = DOG.nose;
+    ctx.beginPath(); ctx.ellipse(11.5, 0, 2.2, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Eye
+    ctx.fillStyle = DOG.eye;
+    ctx.beginPath(); ctx.arc(1, -4.5, 2.2, 0, Math.PI * 2); ctx.fill();
+    // Eye shine
+    ctx.fillStyle = DOG.eyeHL;
+    ctx.beginPath(); ctx.arc(1.9, -5.2, 0.8, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawDogBody(seg, facing, idx) {
+  const cx = seg.x * CELL + CELL / 2;
+  const cy = seg.y * CELL + CELL / 2;
+  const isVert = (facing === DIR.UP || facing === DIR.DOWN);
+
+  // Draw legs perpendicular to movement direction, in screen space (before body)
+  if (idx === 1 || idx === snake.length - 2) {
+    ctx.fillStyle = DOG.body;
+    if (isVert) {
+      // Legs point left/right
+      ctx.beginPath(); ctx.ellipse(cx - 9, cy, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + 9, cy, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      // Paws
+      ctx.fillStyle = DOG.snout;
+      ctx.beginPath(); ctx.ellipse(cx - 12, cy, 2, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + 12, cy, 2, 3, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Legs point up/down
+      ctx.beginPath(); ctx.ellipse(cx, cy - 9, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx, cy + 9, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      // Paws
+      ctx.fillStyle = DOG.snout;
+      ctx.beginPath(); ctx.ellipse(cx, cy - 12, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx, cy + 12, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Body ellipse (rotated along direction)
+  withSeg(seg, facing, () => {
+    ctx.fillStyle = DOG.body;
+    ctx.beginPath(); ctx.ellipse(0, 0, 10.5, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Belly stripe
+    ctx.fillStyle = DOG.belly;
+    ctx.beginPath(); ctx.ellipse(0, 2.5, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawDogTail(seg, facing) {
+  withSeg(seg, facing, () => {
+    // Rear body lump
+    ctx.fillStyle = DOG.body;
+    ctx.beginPath(); ctx.ellipse(2, 0, 9, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Belly on tail segment
+    ctx.fillStyle = DOG.belly;
+    ctx.beginPath(); ctx.ellipse(2, 2.5, 6, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Tail tip — thin curved shape pointing backward & upward
+    ctx.fillStyle = DOG.tail;
+    ctx.beginPath();
+    ctx.moveTo(-4, -1);
+    ctx.bezierCurveTo(-8, -2, -12, -7, -11, -12);
+    ctx.bezierCurveTo(-10.5, -13.5, -9.5, -13, -10, -11);
+    ctx.bezierCurveTo(-10.5, -7, -7, -2, -3.5, 2);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+// ─── Bone (food) ──────────────────────────────────────────────────────────────
+function drawBone() {
+  const cx = food.x * CELL + CELL / 2;
+  const cy = food.y * CELL + CELL / 2;
+  const pulse = 0.5 + 0.5 * Math.sin(foodPulse * 0.005);
+
+  ctx.shadowColor = '#B8692A';
+  ctx.shadowBlur  = 6 + pulse * 10;
+  ctx.fillStyle   = '#f0e8cc';
+
+  const hw = 6.5;  // half shaft length
+  const kr = 3.5;  // knob radius
+
+  // Left knobs
+  ctx.beginPath(); ctx.arc(cx - hw, cy - 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx - hw, cy + 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  // Right knobs
+  ctx.beginPath(); ctx.arc(cx + hw, cy - 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + hw, cy + 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  // Shaft
+  ctx.fillRect(cx - hw, cy - 2, hw * 2, 4);
+
+  // Highlight on bone
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath(); ctx.ellipse(cx, cy - 1, 4, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Overlay ──────────────────────────────────────────────────────────────────
+function drawOverlay(title, line1, line2) {
+  ctx.fillStyle = C.overlay;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#7B3A10';
+
+  ctx.shadowBlur = 18;
+  ctx.fillStyle  = C.textBright;
+  ctx.font       = 'bold 36px "Courier New", monospace';
+  ctx.fillText(title, W / 2, H / 2 - 30);
+
+  ctx.shadowBlur = 8;
+  ctx.font       = '16px "Courier New", monospace';
+  ctx.fillText(line1, W / 2, H / 2 + 10);
+
+  if (line2) {
+    ctx.fillStyle  = C.textDim;
+    ctx.shadowBlur = 4;
+    ctx.font       = '13px "Courier New", monospace';
+    ctx.fillText(line2, W / 2, H / 2 + 36);
+  }
+  ctx.shadowBlur = 0;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function updateHUD() {
+  scoreEl.textContent = score;
+  levelEl.textContent = level;
+  bestEl.textContent  = best;
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+const KEY_MAP = {
+  ArrowUp:    DIR.UP,    w: DIR.UP,    W: DIR.UP,
+  ArrowDown:  DIR.DOWN,  s: DIR.DOWN,  S: DIR.DOWN,
+  ArrowLeft:  DIR.LEFT,  a: DIR.LEFT,  A: DIR.LEFT,
+  ArrowRight: DIR.RIGHT, d: DIR.RIGHT, D: DIR.RIGHT,
+};
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
+  const mapped = KEY_MAP[e.key];
+  if (!mapped) return;
+  e.preventDefault();
+  if (state === 'idle') { startGame(); return; }
+  if (state !== 'running') return;
+  if (dirQueue.length < 2) dirQueue.push(mapped);
+});
+
+// ─── Buttons ──────────────────────────────────────────────────────────────────
+btnStart.addEventListener('click', () => {
+  if (state === 'idle' || state === 'dead') startGame();
+});
+btnPause.addEventListener('click', togglePause);
+btnRestart.addEventListener('click', () => {
+  state = 'idle';
+  initGame();
+  if (!rafId) rafId = requestAnimationFrame(loop);
+  startGame();
+});
+
+function startGame() {
+  if (state === 'dead' || state === 'idle') initGame();
+  state    = 'running';
+  lastTick = performance.now();
+  if (!rafId) rafId = requestAnimationFrame(loop);
+}
+
+function togglePause() {
+  if (state === 'running') {
+    state = 'paused';
+  } else if (state === 'paused') {
+    state    = 'running';
+    lastTick = performance.now();
+  }
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+initGame();
+rafId = requestAnimationFrame(loop);
+</script>
+</body>
+</html>
