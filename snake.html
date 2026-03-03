@@ -347,7 +347,7 @@ function drawDogBody(seg, facing, idx) {
   const isVert = (facing === DIR.UP || facing === DIR.DOWN);
 
   // Draw legs perpendicular to movement direction, in screen space (before body)
-  if (idx === 1 || idx === 3) {
+  if (idx === 1 || idx === snake.length - 2) {
     ctx.fillStyle = DOG.body;
     if (isVert) {
       // Legs point left/right
