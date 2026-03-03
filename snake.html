@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SNAKE</title>
+<title>DACHSHUND</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -93,7 +93,7 @@
 </head>
 <body>
 
-<h1>Snake</h1>
+<h1>Dachshund</h1>
 
 <div id="hud">
   <span>SCORE: <span id="score-val">0</span></span>
@@ -118,24 +118,32 @@
 const COLS      = 20;
 const ROWS      = 20;
 const CELL      = 24;
-const W         = COLS * CELL; // 480
-const H         = ROWS * CELL; // 480
+const W         = COLS * CELL;
+const H         = ROWS * CELL;
 
-const BASE_MS   = 150;   // initial ms per tick
-const MIN_MS    = 62;    // fastest possible
-const SPEED_DEC = 5;     // ms removed per food eaten
+const BASE_MS   = 150;
+const MIN_MS    = 62;
+const SPEED_DEC = 5;
 
 const C = {
   bg:         '#000000',
   grid:       'rgba(0,80,0,0.18)',
-  snakeBody:  '#00cc00',
-  snakeHead:  '#00ff00',
-  snakeDark:  '#007700',
-  food:       '#ff3333',
-  foodGlow:   '#ff0000',
   overlay:    'rgba(0,0,0,0.72)',
   textBright: '#00ff00',
   textDim:    '#007700',
+};
+
+// Dachshund palette
+const DOG = {
+  body:    '#7B3A10',   // dark reddish-brown
+  mid:     '#9B4E1A',   // medium brown
+  belly:   '#C47830',   // warm tan/caramel
+  ear:     '#4E2208',   // very dark brown ear
+  snout:   '#B8692A',   // tan muzzle
+  nose:    '#110500',   // near-black nose
+  eye:     '#1a0800',   // dark eye
+  eyeHL:   '#ffffff',   // eye highlight
+  tail:    '#5C2C08',   // dark tail tip
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -148,22 +156,20 @@ const btnStart   = document.getElementById('btn-start');
 const btnPause   = document.getElementById('btn-pause');
 const btnRestart = document.getElementById('btn-restart');
 
-// Directions
 const DIR = { UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0] };
 
-let snake, dir, nextDir, dirQueue, food, score, level, tickMs;
+let snake, dir, dirQueue, food, score, level, tickMs;
 let best = 0;
-let state = 'idle'; // idle | running | paused | dead
+let state = 'idle';
 
-let rafId      = null;
-let lastTick   = 0;
-let foodPulse  = 0; // for food animation
+let rafId     = null;
+let lastTick  = 0;
+let foodPulse = 0;
 
 // ─── Init / Reset ─────────────────────────────────────────────────────────────
 function initGame() {
-  snake    = [{ x:10, y:10 }, { x:9, y:10 }, { x:8, y:10 }];
+  snake    = [{ x:10, y:10 }, { x:9, y:10 }, { x:8, y:10 }, { x:7, y:10 }, { x:6, y:10 }];
   dir      = DIR.RIGHT;
-  nextDir  = DIR.RIGHT;
   dirQueue = [];
   score    = 0;
   level    = 1;
@@ -183,7 +189,7 @@ function spawnFood() {
 // ─── Game Loop ────────────────────────────────────────────────────────────────
 function loop(ts) {
   rafId = requestAnimationFrame(loop);
-  foodPulse = ts; // keep for animation
+  foodPulse = ts;
 
   if (state !== 'running') { render(); return; }
 
@@ -195,36 +201,26 @@ function loop(ts) {
 }
 
 function tick() {
-  // consume direction queue
   if (dirQueue.length > 0) {
     const candidate = dirQueue.shift();
-    // prevent 180° reversal
-    if (candidate[0] !== -dir[0] || candidate[1] !== -dir[1]) {
-      dir = candidate;
-    }
+    if (candidate[0] !== -dir[0] || candidate[1] !== -dir[1]) dir = candidate;
   }
 
   const head = snake[0];
   const nx = ((head.x + dir[0]) + COLS) % COLS;
   const ny = ((head.y + dir[1]) + ROWS) % ROWS;
 
-  // self collision (skip last tail segment — it moves away)
   for (let i = 0; i < snake.length - 1; i++) {
-    if (snake[i].x === nx && snake[i].y === ny) {
-      endGame(); return;
-    }
+    if (snake[i].x === nx && snake[i].y === ny) { endGame(); return; }
   }
 
   const ate = (nx === food.x && ny === food.y);
-  const newHead = { x: nx, y: ny };
-
-  snake.unshift(newHead);
+  snake.unshift({ x: nx, y: ny });
   if (!ate) {
     snake.pop();
   } else {
     score += 10;
     if (score > best) best = score;
-    // speed up
     tickMs = Math.max(MIN_MS, tickMs - SPEED_DEC);
     level  = Math.floor((BASE_MS - tickMs) / SPEED_DEC) + 1;
     spawnFood();
@@ -241,27 +237,22 @@ function endGame() {
 // ─── Rendering ────────────────────────────────────────────────────────────────
 function render() {
   ctx.clearRect(0, 0, W, H);
-
   drawBackground();
-  drawFood();
-  drawSnake();
+  drawBone();
+  drawDachshund();
 
-  if (state === 'idle')    drawOverlay('SNAKE', '[ PRESS START ]', '');
-  if (state === 'paused')  drawOverlay('PAUSED', '[ PRESS PAUSE TO RESUME ]', '');
-  if (state === 'dead')    drawOverlay('GAME OVER', `SCORE: ${score}`, '[ RESTART TO PLAY AGAIN ]');
+  if (state === 'idle')   drawOverlay('DACHSHUND', '[ PRESS START ]', '');
+  if (state === 'paused') drawOverlay('PAUSED', '[ PRESS PAUSE TO RESUME ]', '');
+  if (state === 'dead')   drawOverlay('GAME OVER', `SCORE: ${score}`, '[ RESTART TO PLAY AGAIN ]');
 }
 
 function drawBackground() {
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
 
-  // subtle scanline effect
   ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  for (let y = 0; y < H; y += 4) {
-    ctx.fillRect(0, y, W, 2);
-  }
+  for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 2);
 
-  // faint grid
   ctx.strokeStyle = C.grid;
   ctx.lineWidth = 0.5;
   for (let x = 0; x <= COLS; x++) {
@@ -272,83 +263,174 @@ function drawBackground() {
   }
 }
 
-function drawSnake() {
+// ─── Dachshund Rendering ──────────────────────────────────────────────────────
+
+// Direction the segment is "facing" (toward the head)
+function getSegDir(from, to) {
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+  if (Math.abs(dx) > 1) dx = -Math.sign(dx);
+  if (Math.abs(dy) > 1) dy = -Math.sign(dy);
+  if (dx > 0) return DIR.RIGHT;
+  if (dx < 0) return DIR.LEFT;
+  if (dy > 0) return DIR.DOWN;
+  return DIR.UP;
+}
+
+function dirToAngle(d) {
+  if (d === DIR.RIGHT) return 0;
+  if (d === DIR.DOWN)  return Math.PI / 2;
+  if (d === DIR.LEFT)  return Math.PI;
+  return -Math.PI / 2;
+}
+
+// Run fn() with canvas translated+rotated to segment center facing given dir
+function withSeg(seg, d, fn) {
+  ctx.save();
+  ctx.translate(seg.x * CELL + CELL / 2, seg.y * CELL + CELL / 2);
+  ctx.rotate(dirToAngle(d));
+  fn();
+  ctx.restore();
+}
+
+function drawDachshund() {
   const len = snake.length;
   for (let i = len - 1; i >= 0; i--) {
     const seg = snake[i];
-    const t   = i / (len - 1 || 1); // 0 = head, 1 = tail
-    const isHead = i === 0;
+    const facing = (i === 0) ? dir : getSegDir(snake[i], snake[i - 1]);
 
-    const x = seg.x * CELL;
-    const y = seg.y * CELL;
-    const pad = 2;
-    const r = isHead ? 6 : 4;
-
-    // body color gradient head→tail
-    const green = Math.round(isHead ? 255 : 180 - t * 80);
-    ctx.fillStyle = `rgb(0,${green},0)`;
-
-    if (isHead) {
-      ctx.shadowColor = '#00ff00';
-      ctx.shadowBlur  = 10;
+    if (i === 0) {
+      drawDogHead(seg, facing);
+    } else if (i === len - 1) {
+      drawDogTail(seg, facing);
     } else {
-      ctx.shadowBlur = 0;
-    }
-
-    roundRect(ctx, x + pad, y + pad, CELL - pad * 2, CELL - pad * 2, r);
-    ctx.fill();
-
-    // inner highlight on head
-    if (isHead) {
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      roundRect(ctx, x + pad + 2, y + pad + 2, CELL - pad * 2 - 8, 4, 2);
-      ctx.fill();
-
-      // eyes
-      drawEyes(seg, dir);
+      drawDogBody(seg, facing, i);
     }
   }
   ctx.shadowBlur = 0;
 }
 
-function drawEyes(head, d) {
-  const cx = head.x * CELL + CELL / 2;
-  const cy = head.y * CELL + CELL / 2;
-  const offset = 4;
-  let e1, e2;
+function drawDogHead(seg, facing) {
+  withSeg(seg, facing, () => {
+    // Floppy ears (behind/below head, drawn first so head overlaps)
+    ctx.fillStyle = DOG.ear;
+    ctx.beginPath(); ctx.ellipse(-2, 8.5, 4, 6, 0.18, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-2, -8.5, 4, 6, -0.18, 0, Math.PI * 2); ctx.fill();
 
-  if (d === DIR.RIGHT) { e1 = [cx+3, cy-3]; e2 = [cx+3, cy+3]; }
-  else if (d === DIR.LEFT)  { e1 = [cx-3, cy-3]; e2 = [cx-3, cy+3]; }
-  else if (d === DIR.UP)    { e1 = [cx-3, cy-3]; e2 = [cx+3, cy-3]; }
-  else                      { e1 = [cx-3, cy+3]; e2 = [cx+3, cy+3]; }
+    // Main head
+    ctx.shadowColor = '#7B3A10';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = DOG.mid;
+    ctx.beginPath(); ctx.ellipse(-1, 0, 8.5, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
 
-  ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.arc(e1[0], e1[1], 2, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(e2[0], e2[1], 2, 0, Math.PI*2); ctx.fill();
+    // Muzzle / snout
+    ctx.fillStyle = DOG.snout;
+    ctx.beginPath(); ctx.ellipse(7, 0.5, 5.5, 4, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Nose
+    ctx.fillStyle = DOG.nose;
+    ctx.beginPath(); ctx.ellipse(11.5, 0, 2.2, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Eye
+    ctx.fillStyle = DOG.eye;
+    ctx.beginPath(); ctx.arc(1, -4.5, 2.2, 0, Math.PI * 2); ctx.fill();
+    // Eye shine
+    ctx.fillStyle = DOG.eyeHL;
+    ctx.beginPath(); ctx.arc(1.9, -5.2, 0.8, 0, Math.PI * 2); ctx.fill();
+  });
 }
 
-function drawFood() {
+function drawDogBody(seg, facing, idx) {
+  const cx = seg.x * CELL + CELL / 2;
+  const cy = seg.y * CELL + CELL / 2;
+  const isVert = (facing === DIR.UP || facing === DIR.DOWN);
+
+  // Draw legs perpendicular to movement direction, in screen space (before body)
+  if (idx % 2 === 1) {
+    ctx.fillStyle = DOG.body;
+    if (isVert) {
+      // Legs point left/right
+      ctx.beginPath(); ctx.ellipse(cx - 9, cy, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + 9, cy, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      // Paws
+      ctx.fillStyle = DOG.snout;
+      ctx.beginPath(); ctx.ellipse(cx - 12, cy, 2, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + 12, cy, 2, 3, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Legs point up/down
+      ctx.beginPath(); ctx.ellipse(cx, cy - 9, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx, cy + 9, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      // Paws
+      ctx.fillStyle = DOG.snout;
+      ctx.beginPath(); ctx.ellipse(cx, cy - 12, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx, cy + 12, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Body ellipse (rotated along direction)
+  withSeg(seg, facing, () => {
+    ctx.fillStyle = DOG.body;
+    ctx.beginPath(); ctx.ellipse(0, 0, 10.5, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Belly stripe
+    ctx.fillStyle = DOG.belly;
+    ctx.beginPath(); ctx.ellipse(0, 2.5, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawDogTail(seg, facing) {
+  withSeg(seg, facing, () => {
+    // Rear body lump
+    ctx.fillStyle = DOG.body;
+    ctx.beginPath(); ctx.ellipse(2, 0, 9, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Belly on tail segment
+    ctx.fillStyle = DOG.belly;
+    ctx.beginPath(); ctx.ellipse(2, 2.5, 6, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Tail tip — thin curved shape pointing backward & upward
+    ctx.fillStyle = DOG.tail;
+    ctx.beginPath();
+    ctx.moveTo(-4, -1);
+    ctx.bezierCurveTo(-8, -2, -12, -7, -11, -12);
+    ctx.bezierCurveTo(-10.5, -13.5, -9.5, -13, -10, -11);
+    ctx.bezierCurveTo(-10.5, -7, -7, -2, -3.5, 2);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+// ─── Bone (food) ──────────────────────────────────────────────────────────────
+function drawBone() {
   const cx = food.x * CELL + CELL / 2;
   const cy = food.y * CELL + CELL / 2;
   const pulse = 0.5 + 0.5 * Math.sin(foodPulse * 0.005);
-  const radius = 5 + pulse * 2;
 
-  ctx.shadowColor = C.foodGlow;
-  ctx.shadowBlur  = 8 + pulse * 12;
-  ctx.fillStyle   = C.food;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.shadowColor = '#d4aa00';
+  ctx.shadowBlur  = 6 + pulse * 10;
+  ctx.fillStyle   = '#f0e8cc';
+
+  const hw = 6.5;  // half shaft length
+  const kr = 3.5;  // knob radius
+
+  // Left knobs
+  ctx.beginPath(); ctx.arc(cx - hw, cy - 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx - hw, cy + 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  // Right knobs
+  ctx.beginPath(); ctx.arc(cx + hw, cy - 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + hw, cy + 2.5, kr, 0, Math.PI * 2); ctx.fill();
+  // Shaft
+  ctx.fillRect(cx - hw, cy - 2, hw * 2, 4);
+
+  // Highlight on bone
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath(); ctx.ellipse(cx, cy - 1, 4, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+
   ctx.shadowBlur = 0;
-
-  // bright center
-  ctx.fillStyle = '#ffaaaa';
-  ctx.beginPath();
-  ctx.arc(cx - 1.5, cy - 1.5, 2, 0, Math.PI * 2);
-  ctx.fill();
 }
 
+// ─── Overlay ──────────────────────────────────────────────────────────────────
 function drawOverlay(title, line1, line2) {
   ctx.fillStyle = C.overlay;
   ctx.fillRect(0, 0, W, H);
@@ -356,43 +438,25 @@ function drawOverlay(title, line1, line2) {
   ctx.textAlign = 'center';
   ctx.shadowColor = '#00ff00';
 
-  // title
-  ctx.shadowBlur  = 18;
-  ctx.fillStyle   = C.textBright;
-  ctx.font        = 'bold 36px "Courier New", monospace';
+  ctx.shadowBlur = 18;
+  ctx.fillStyle  = C.textBright;
+  ctx.font       = 'bold 36px "Courier New", monospace';
   ctx.fillText(title, W / 2, H / 2 - 30);
 
-  // line 1
-  ctx.shadowBlur  = 8;
-  ctx.font        = '16px "Courier New", monospace';
+  ctx.shadowBlur = 8;
+  ctx.font       = '16px "Courier New", monospace';
   ctx.fillText(line1, W / 2, H / 2 + 10);
 
-  // line 2
   if (line2) {
     ctx.fillStyle  = C.textDim;
     ctx.shadowBlur = 4;
     ctx.font       = '13px "Courier New", monospace';
     ctx.fillText(line2, W / 2, H / 2 + 36);
   }
-
   ctx.shadowBlur = 0;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
 function updateHUD() {
   scoreEl.textContent = score;
   levelEl.textContent = level;
@@ -408,30 +472,20 @@ const KEY_MAP = {
 };
 
 document.addEventListener('keydown', e => {
-  // Space = pause toggle
-  if (e.code === 'Space') {
-    e.preventDefault();
-    togglePause(); return;
-  }
-
+  if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
   const mapped = KEY_MAP[e.key];
   if (!mapped) return;
   e.preventDefault();
-
   if (state === 'idle') { startGame(); return; }
   if (state !== 'running') return;
-
-  // queue up to 2 direction changes
   if (dirQueue.length < 2) dirQueue.push(mapped);
 });
 
-// ─── Button handlers ──────────────────────────────────────────────────────────
+// ─── Buttons ──────────────────────────────────────────────────────────────────
 btnStart.addEventListener('click', () => {
   if (state === 'idle' || state === 'dead') startGame();
 });
-
 btnPause.addEventListener('click', togglePause);
-
 btnRestart.addEventListener('click', () => {
   state = 'idle';
   initGame();
