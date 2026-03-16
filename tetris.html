@@ -23,15 +23,15 @@
     h1 {
       font-size: 2rem;
       letter-spacing: 0.45em;
-      color: #e040fb;
-      text-shadow: 0 0 24px #e040fb55, 0 0 60px #e040fb22;
+      color: #daa520;
+      text-shadow: 0 0 24px #daa52055, 0 0 60px #daa52022;
       margin-bottom: 18px;
     }
 
     canvas {
       display: block;
       border: 1px solid #22224a;
-      box-shadow: 0 0 60px #7c3aed18, 0 0 24px #00000088;
+      box-shadow: 0 0 60px #daa52012, 0 0 24px #00000088;
     }
 
     .buttons {
@@ -54,8 +54,8 @@
 
     button:hover {
       background: #1c1c40;
-      border-color: #6030cc;
-      color: #c8c8ff;
+      border-color: #a07010;
+      color: #daa520;
     }
 
     .hint {
@@ -78,19 +78,22 @@
 
   <script>
   // ── Constants ──────────────────────────────────────────────────────────────
-  const COLS = 10, ROWS = 20, CELL = 32;
-  const BOARD_W = COLS * CELL;   // 320
-  const SIDE_W  = 160;
-  const W       = BOARD_W + SIDE_W; // 480
-  const H       = ROWS * CELL;      // 640
-  const LOCK_DELAY = 480;           // ms before piece locks after landing
+  const COLS    = 10, ROWS = 20, CELL = 32;
+  const LEFT_W  = 160;
+  const RIGHT_W = 160;
+  const BOARD_W = COLS * CELL;          // 320
+  const BOARD_X = LEFT_W;               // board left edge = 160
+  const W       = LEFT_W + BOARD_W + RIGHT_W; // 640
+  const H       = ROWS * CELL;          // 640
+  const LEFT_CX  = LEFT_W / 2;                      // 80  — center of left sidebar
+  const RIGHT_CX = LEFT_W + BOARD_W + RIGHT_W / 2;  // 560 — center of right sidebar
+  const LOCK_DELAY = 480;
 
   const COLORS = {
     I: '#00e5ff', O: '#ffd600', T: '#e040fb',
     S: '#69f0ae', Z: '#ff5252', J: '#448aff', L: '#ff9100',
   };
 
-  // Pieces: 4 rotation states, each a list of [row, col] offsets in bounding box
   const SHAPES = {
     I: [
       [[1,0],[1,1],[1,2],[1,3]],
@@ -136,8 +139,8 @@
     ],
   };
 
-  const TYPES        = Object.keys(SHAPES);
-  const LINE_SCORES  = [0, 100, 300, 500, 800];
+  const TYPES       = Object.keys(SHAPES);
+  const LINE_SCORES = [0, 100, 300, 500, 800];
 
   // ── Canvas ─────────────────────────────────────────────────────────────────
   const canvas = document.getElementById('c');
@@ -151,7 +154,7 @@
   let nextType, held, holdUsed;
   let tickMs, lastTick, lockStart, rafId;
 
-  // ── DAS (Delayed Auto Shift) ───────────────────────────────────────────────
+  // ── DAS ────────────────────────────────────────────────────────────────────
   let dasDir = null, dasTimer = null, dasIval = null;
 
   function startDAS(dir) {
@@ -236,7 +239,7 @@
         board.splice(r, 1);
         board.unshift(Array(COLS).fill(null));
         cleared++;
-        r++; // recheck same index after shift
+        r++;
       }
     }
     if (cleared > 0) {
@@ -251,7 +254,7 @@
   function moveH(dx) {
     if (!collides(curCells, curX + dx, curY)) {
       curX += dx;
-      if (lockStart !== null) lockStart = Date.now(); // reset lock on lateral move
+      if (lockStart !== null) lockStart = Date.now();
     }
   }
 
@@ -280,7 +283,7 @@
         curRot   = nextRot;
         curCells = nextCells;
         curX    += off;
-        if (lockStart !== null) lockStart = Date.now(); // reset lock on rotate
+        if (lockStart !== null) lockStart = Date.now();
         return;
       }
     }
@@ -316,7 +319,6 @@
 
     if (state === 'running') {
       if (lockStart !== null) {
-        // Check lock delay every frame for precise timing
         if (Date.now() - lockStart >= LOCK_DELAY) {
           lockStart = null;
           lastTick  = ts;
@@ -335,24 +337,34 @@
     render();
   }
 
-  // ── Rendering ──────────────────────────────────────────────────────────────
+  // ── Rendering helpers ──────────────────────────────────────────────────────
+
+  // Draw a single tetromino cell on the board
   function drawCell(col, row, color, alpha) {
-    const px = col * CELL, py = row * CELL;
+    const px = BOARD_X + col * CELL, py = row * CELL;
     ctx.globalAlpha = alpha ?? 1;
     ctx.fillStyle   = color;
     ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    // Top-left highlight (lit edge)
     ctx.fillStyle = 'rgba(255,255,255,0.26)';
     ctx.fillRect(px + 1, py + 1, CELL - 2, 3);
     ctx.fillRect(px + 1, py + 1, 3, CELL - 2);
-    // Bottom-right shadow (dark edge)
     ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(px + 1, py + CELL - 4, CELL - 2, 3);
     ctx.fillRect(px + CELL - 4, py + 1, 3, CELL - 2);
     ctx.globalAlpha = 1;
   }
 
-  function drawPreview(type, by, sz) {
+  // Draw a rounded panel box
+  function drawPanel(x, y, w, h) {
+    ctx.fillStyle = '#0f0f22';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.fill();
+    ctx.strokeStyle = '#daa52055';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
+  }
+
+  // Draw a piece preview centered horizontally at centerX, starting at topY
+  function drawPreview(type, centerX, topY, sz, alpha) {
     if (!type) return;
     const cells = SHAPES[type][0];
     const color = COLORS[type];
@@ -362,9 +374,12 @@
       minC = Math.min(minC, c); maxC = Math.max(maxC, c);
     }
     const pw = (maxC - minC + 1) * sz;
-    const ox = BOARD_W + (SIDE_W - pw) / 2;
+    const ph = (maxR - minR + 1) * sz;
+    const ox = centerX - pw / 2;
+    const oy = topY;
+    ctx.globalAlpha = alpha ?? 1;
     for (const [r, c] of cells) {
-      const px = ox + (c - minC) * sz, py = by + (r - minR) * sz;
+      const px = ox + (c - minC) * sz, py = oy + (r - minR) * sz;
       ctx.fillStyle = color;
       ctx.fillRect(px + 1, py + 1, sz - 2, sz - 2);
       ctx.fillStyle = 'rgba(255,255,255,0.26)';
@@ -374,31 +389,39 @@
       ctx.fillRect(px + 1, py + sz - 3, sz - 2, 2);
       ctx.fillRect(px + sz - 3, py + 1, 2, sz - 2);
     }
+    ctx.globalAlpha = 1;
   }
 
-  function label(text, x, y, size, color) {
+  function lbl(text, x, y, size, color) {
     ctx.fillStyle = color;
     ctx.font      = `${size}px "Courier New"`;
     ctx.fillText(text, x, y);
   }
 
+  // ── Main render ────────────────────────────────────────────────────────────
   function render() {
-    // Page bg
+    // Canvas background
     ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, W, H);
 
-    // Board bg
+    // Board background
     ctx.fillStyle = '#0d0d1a';
-    ctx.fillRect(0, 0, BOARD_W, H);
+    ctx.fillRect(BOARD_X, 0, BOARD_W, H);
 
     // Grid lines
     ctx.strokeStyle = '#1c1c2e';
     ctx.lineWidth   = 1;
     for (let c = 1; c < COLS; c++) {
-      ctx.beginPath(); ctx.moveTo(c * CELL + 0.5, 0); ctx.lineTo(c * CELL + 0.5, H); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(BOARD_X + c * CELL + 0.5, 0);
+      ctx.lineTo(BOARD_X + c * CELL + 0.5, H);
+      ctx.stroke();
     }
     for (let r = 1; r < ROWS; r++) {
-      ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(BOARD_W, r * CELL + 0.5); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(BOARD_X, r * CELL + 0.5);
+      ctx.lineTo(BOARD_X + BOARD_W, r * CELL + 0.5);
+      ctx.stroke();
     }
 
     // Locked cells
@@ -415,7 +438,7 @@
           if (row >= 0 && row < ROWS) {
             ctx.globalAlpha = 0.14;
             ctx.fillStyle   = COLORS[curType];
-            ctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+            ctx.fillRect(BOARD_X + col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
             ctx.globalAlpha = 1;
           }
         }
@@ -430,52 +453,55 @@
       }
     }
 
-    // ── Sidebar ────────────────────────────────────────────────────────────
-    const sx = BOARD_W + 14;
+    // ── LEFT SIDEBAR ────────────────────────────────────────────────────────
 
-    ctx.fillStyle = '#0f0f22';
-    ctx.fillRect(BOARD_W, 0, SIDE_W, H);
-    ctx.fillStyle = '#1e1e3a';
-    ctx.fillRect(BOARD_W, 0, 1, H);
-
-    // Score / Level / Lines
-    label('SCORE',       sx, 28,  10, '#484880');
-    label(String(score), sx, 50,  19, '#e8e8ff');
-    label('LEVEL',       sx, 78,  10, '#484880');
-    label(String(level), sx, 100, 19, '#e040fb');
-    label('LINES',       sx, 128, 10, '#484880');
-    label(String(lines), sx, 150, 19, '#00e5ff');
-
-    // Separator
-    ctx.fillStyle = '#1e1e3a';
-    ctx.fillRect(BOARD_W + 1, 162, SIDE_W - 1, 1);
-
-    // Next
-    label('NEXT', sx, 178, 10, '#484880');
-    drawPreview(nextType, 184, 20);
-
-    // Separator
-    ctx.fillStyle = '#1e1e3a';
-    ctx.fillRect(BOARD_W + 1, 298, SIDE_W - 1, 1);
-
-    // Hold
-    label(holdUsed ? 'HOLD ×' : 'HOLD', sx, 314, 10, holdUsed ? '#2e2e50' : '#484880');
+    // HOLD panel
+    drawPanel(8, 8, 144, 130);
+    lbl('HOLD', 20, 26, 10, holdUsed ? '#5a4400' : '#a07818');
     if (held) {
-      ctx.globalAlpha = holdUsed ? 0.35 : 1;
-      drawPreview(held, 320, 20);
-      ctx.globalAlpha = 1;
+      drawPreview(held, LEFT_CX, 36, 20, holdUsed ? 0.35 : 1);
     } else {
-      label('—', BOARD_W + SIDE_W / 2 - 4, 360, 16, '#282848');
+      ctx.textAlign = 'center';
+      lbl('—', LEFT_CX, 82, 16, '#252540');
+      ctx.textAlign = 'left';
     }
 
-    // Separator
-    ctx.fillStyle = '#1e1e3a';
-    ctx.fillRect(BOARD_W + 1, 448, SIDE_W - 1, 1);
+    // CONTROLS panel
+    drawPanel(8, 146, 144, 146);
+    lbl('CONTROLS', 20, 164, 10, '#a07818');
+    const hints = [
+      '← →  MOVE',
+      '↑    ROTATE CW',
+      'Z    ROTATE CCW',
+      '↓    SOFT DROP',
+      'SPC  HARD DROP',
+      'SHF  HOLD',
+      'P    PAUSE',
+    ];
+    hints.forEach((h, i) => lbl(h, 20, 180 + i * 15, 9, '#484860'));
 
-    // Controls
-    const ctrlColor = '#32325a';
-    const hints = ['← →  MOVE', '↑    ROTATE CW', 'Z    ROTATE CCW', '↓    SOFT DROP', 'SPC  HARD DROP', 'SHF  HOLD', 'P    PAUSE'];
-    hints.forEach((h, i) => label(h, sx, 464 + i * 14, 9, ctrlColor));
+    // ── RIGHT SIDEBAR ───────────────────────────────────────────────────────
+    const rx = LEFT_W + BOARD_W + 8; // right panel left edge
+
+    // NEXT panel
+    drawPanel(rx, 8, 144, 130);
+    lbl('NEXT', rx + 12, 26, 10, '#a07818');
+    drawPreview(nextType, RIGHT_CX, 36, 20);
+
+    // SCORE panel
+    drawPanel(rx, 146, 144, 64);
+    lbl('SCORE', rx + 12, 164, 10, '#a07818');
+    lbl(String(score), rx + 12, 196, 19, '#e8e8ff');
+
+    // LEVEL panel
+    drawPanel(rx, 218, 144, 64);
+    lbl('LEVEL', rx + 12, 236, 10, '#a07818');
+    lbl(String(level), rx + 12, 268, 19, '#daa520');
+
+    // LINES panel
+    drawPanel(rx, 290, 144, 64);
+    lbl('LINES', rx + 12, 308, 10, '#a07818');
+    lbl(String(lines), rx + 12, 340, 19, '#00e5ff');
 
     // ── Overlays ──────────────────────────────────────────────────────────
     if (state === 'idle')   drawOverlay('TETRIS',    'PRESS START TO PLAY');
@@ -485,17 +511,17 @@
 
   function drawOverlay(title, sub) {
     ctx.fillStyle = 'rgba(10,10,15,0.86)';
-    ctx.fillRect(0, 0, BOARD_W, H);
+    ctx.fillRect(BOARD_X, 0, BOARD_W, H);
     ctx.textAlign   = 'center';
-    ctx.shadowColor = '#e040fb';
+    ctx.shadowColor = '#daa520';
     ctx.shadowBlur  = 28;
-    ctx.fillStyle   = '#e040fb';
+    ctx.fillStyle   = '#daa520';
     ctx.font        = 'bold 38px "Courier New"';
-    ctx.fillText(title, BOARD_W / 2, H / 2 - 14);
+    ctx.fillText(title, BOARD_X + BOARD_W / 2, H / 2 - 14);
     ctx.shadowBlur  = 0;
     ctx.fillStyle   = '#5858a0';
     ctx.font        = '14px "Courier New"';
-    ctx.fillText(sub, BOARD_W / 2, H / 2 + 18);
+    ctx.fillText(sub, BOARD_X + BOARD_W / 2, H / 2 + 18);
     ctx.textAlign   = 'left';
   }
 
