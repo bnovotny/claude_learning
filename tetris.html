@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tetris</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0a0f;
+      color: #c8c8ff;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      padding: 24px 16px;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 2rem;
+      letter-spacing: 0.45em;
+      color: #e040fb;
+      text-shadow: 0 0 24px #e040fb55, 0 0 60px #e040fb22;
+      margin-bottom: 18px;
+    }
+
+    canvas {
+      display: block;
+      border: 1px solid #22224a;
+      box-shadow: 0 0 60px #7c3aed18, 0 0 24px #00000088;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    button {
+      background: #12122a;
+      color: #8080bb;
+      border: 1px solid #28284e;
+      padding: 7px 20px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.8rem;
+      letter-spacing: 0.12em;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+
+    button:hover {
+      background: #1c1c40;
+      border-color: #6030cc;
+      color: #c8c8ff;
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 0.67rem;
+      color: #383860;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <h1>TETRIS</h1>
+  <canvas id="c"></canvas>
+  <div class="buttons">
+    <button id="btnStart">START</button>
+    <button id="btnPause">PAUSE</button>
+    <button id="btnRestart">RESTART</button>
+  </div>
+  <div class="hint">← → move &nbsp;·&nbsp; ↑ rotate CW &nbsp;·&nbsp; Z rotate CCW &nbsp;·&nbsp; ↓ soft drop &nbsp;·&nbsp; SPACE hard drop &nbsp;·&nbsp; SHIFT hold &nbsp;·&nbsp; P pause</div>
+
+  <script>
+  // ── Constants ──────────────────────────────────────────────────────────────
+  const COLS = 10, ROWS = 20, CELL = 32;
+  const BOARD_W = COLS * CELL;   // 320
+  const SIDE_W  = 160;
+  const W       = BOARD_W + SIDE_W; // 480
+  const H       = ROWS * CELL;      // 640
+  const LOCK_DELAY = 480;           // ms before piece locks after landing
+
+  const COLORS = {
+    I: '#00e5ff', O: '#ffd600', T: '#e040fb',
+    S: '#69f0ae', Z: '#ff5252', J: '#448aff', L: '#ff9100',
+  };
+
+  // Pieces: 4 rotation states, each a list of [row, col] offsets in bounding box
+  const SHAPES = {
+    I: [
+      [[1,0],[1,1],[1,2],[1,3]],
+      [[0,2],[1,2],[2,2],[3,2]],
+      [[2,0],[2,1],[2,2],[2,3]],
+      [[0,1],[1,1],[2,1],[3,1]],
+    ],
+    O: [
+      [[0,1],[0,2],[1,1],[1,2]],
+      [[0,1],[0,2],[1,1],[1,2]],
+      [[0,1],[0,2],[1,1],[1,2]],
+      [[0,1],[0,2],[1,1],[1,2]],
+    ],
+    T: [
+      [[0,1],[1,0],[1,1],[1,2]],
+      [[0,1],[1,1],[1,2],[2,1]],
+      [[1,0],[1,1],[1,2],[2,1]],
+      [[0,1],[1,0],[1,1],[2,1]],
+    ],
+    S: [
+      [[0,1],[0,2],[1,0],[1,1]],
+      [[0,1],[1,1],[1,2],[2,2]],
+      [[1,1],[1,2],[2,0],[2,1]],
+      [[0,0],[1,0],[1,1],[2,1]],
+    ],
+    Z: [
+      [[0,0],[0,1],[1,1],[1,2]],
+      [[0,2],[1,1],[1,2],[2,1]],
+      [[1,0],[1,1],[2,1],[2,2]],
+      [[0,1],[1,0],[1,1],[2,0]],
+    ],
+    J: [
+      [[0,0],[1,0],[1,1],[1,2]],
+      [[0,1],[0,2],[1,1],[2,1]],
+      [[1,0],[1,1],[1,2],[2,2]],
+      [[0,1],[1,1],[2,0],[2,1]],
+    ],
+    L: [
+      [[0,2],[1,0],[1,1],[1,2]],
+      [[0,1],[1,1],[2,1],[2,2]],
+      [[1,0],[1,1],[1,2],[2,0]],
+      [[0,0],[0,1],[1,1],[2,1]],
+    ],
+  };
+
+  const TYPES        = Object.keys(SHAPES);
+  const LINE_SCORES  = [0, 100, 300, 500, 800];
+
+  // ── Canvas ─────────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('c');
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let board, state, score, level, lines;
+  let curType, curRot, curX, curY, curCells;
+  let nextType, held, holdUsed;
+  let tickMs, lastTick, lockStart, rafId;
+
+  // ── DAS (Delayed Auto Shift) ───────────────────────────────────────────────
+  let dasDir = null, dasTimer = null, dasIval = null;
+
+  function startDAS(dir) {
+    if (dasDir === dir) return;
+    stopDAS();
+    dasDir = dir;
+    dasTimer = setTimeout(() => {
+      dasIval = setInterval(() => {
+        if (state !== 'running') { stopDAS(); return; }
+        if      (dir === 'L') moveH(-1);
+        else if (dir === 'R') moveH(1);
+        else if (dir === 'D') softDrop();
+      }, 50);
+    }, 140);
+  }
+
+  function stopDAS() {
+    clearTimeout(dasTimer);
+    clearInterval(dasIval);
+    dasTimer = dasIval = null;
+    dasDir = null;
+  }
+
+  // ── Core helpers ───────────────────────────────────────────────────────────
+  function randPiece() {
+    return TYPES[Math.floor(Math.random() * TYPES.length)];
+  }
+
+  function collides(cells, ox, oy) {
+    for (const [r, c] of cells) {
+      const row = oy + r, col = ox + c;
+      if (col < 0 || col >= COLS || row >= ROWS) return true;
+      if (row >= 0 && board[row][col] !== null) return true;
+    }
+    return false;
+  }
+
+  function ghostY() {
+    let gy = curY;
+    while (!collides(curCells, curX, gy + 1)) gy++;
+    return gy;
+  }
+
+  // ── Game management ────────────────────────────────────────────────────────
+  function init() {
+    board    = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    score    = 0;
+    level    = 1;
+    lines    = 0;
+    tickMs   = 800;
+    held     = null;
+    holdUsed = false;
+    nextType = randPiece();
+    spawnPiece();
+  }
+
+  function spawnPiece() {
+    curType  = nextType;
+    nextType = randPiece();
+    curRot   = 0;
+    curCells = SHAPES[curType][0];
+    curX     = 3;
+    curY     = 0;
+    holdUsed = false;
+    lockStart = null;
+    if (collides(curCells, curX, curY)) state = 'dead';
+  }
+
+  function lockPiece() {
+    for (const [r, c] of curCells) {
+      const row = curY + r, col = curX + c;
+      if (row >= 0 && row < ROWS) board[row][col] = COLORS[curType];
+    }
+    clearLines();
+    if (state !== 'dead') spawnPiece();
+  }
+
+  function clearLines() {
+    let cleared = 0;
+    for (let r = ROWS - 1; r >= 0; r--) {
+      if (board[r].every(cell => cell !== null)) {
+        board.splice(r, 1);
+        board.unshift(Array(COLS).fill(null));
+        cleared++;
+        r++; // recheck same index after shift
+      }
+    }
+    if (cleared > 0) {
+      score  += LINE_SCORES[cleared] * level;
+      lines  += cleared;
+      level   = Math.floor(lines / 10) + 1;
+      tickMs  = Math.max(80, 800 - (level - 1) * 70);
+    }
+  }
+
+  // ── Player actions ─────────────────────────────────────────────────────────
+  function moveH(dx) {
+    if (!collides(curCells, curX + dx, curY)) {
+      curX += dx;
+      if (lockStart !== null) lockStart = Date.now(); // reset lock on lateral move
+    }
+  }
+
+  function softDrop() {
+    if (!collides(curCells, curX, curY + 1)) {
+      curY++;
+      score++;
+      lockStart = null;
+    } else {
+      if (lockStart === null) lockStart = Date.now();
+    }
+  }
+
+  function hardDrop() {
+    let dropped = 0;
+    while (!collides(curCells, curX, curY + 1)) { curY++; dropped++; }
+    score += dropped * 2;
+    lockPiece();
+  }
+
+  function rotate(dir) {
+    const nextRot   = (curRot + dir + 4) % 4;
+    const nextCells = SHAPES[curType][nextRot];
+    for (const off of [0, -1, 1, -2, 2]) {
+      if (!collides(nextCells, curX + off, curY)) {
+        curRot   = nextRot;
+        curCells = nextCells;
+        curX    += off;
+        if (lockStart !== null) lockStart = Date.now(); // reset lock on rotate
+        return;
+      }
+    }
+  }
+
+  function hold() {
+    if (holdUsed) return;
+    holdUsed  = true;
+    lockStart = null;
+    if (held === null) {
+      held = curType;
+      spawnPiece();
+    } else {
+      const tmp = held;
+      held     = curType;
+      curType  = tmp;
+      curRot   = 0;
+      curCells = SHAPES[curType][0];
+      curX     = 3;
+      curY     = 0;
+      if (collides(curCells, curX, curY)) state = 'dead';
+    }
+  }
+
+  function togglePause() {
+    if      (state === 'running') { state = 'paused'; }
+    else if (state === 'paused')  { state = 'running'; lastTick = performance.now(); }
+  }
+
+  // ── Game loop ──────────────────────────────────────────────────────────────
+  function loop(ts) {
+    rafId = requestAnimationFrame(loop);
+
+    if (state === 'running') {
+      if (lockStart !== null) {
+        // Check lock delay every frame for precise timing
+        if (Date.now() - lockStart >= LOCK_DELAY) {
+          lockStart = null;
+          lastTick  = ts;
+          lockPiece();
+        }
+      } else if (ts - lastTick >= tickMs) {
+        lastTick = ts;
+        if (!collides(curCells, curX, curY + 1)) {
+          curY++;
+        } else {
+          lockStart = Date.now();
+        }
+      }
+    }
+
+    render();
+  }
+
+  // ── Rendering ──────────────────────────────────────────────────────────────
+  function drawCell(col, row, color, alpha) {
+    const px = col * CELL, py = row * CELL;
+    ctx.globalAlpha = alpha ?? 1;
+    ctx.fillStyle   = color;
+    ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
+    // Top-left highlight (lit edge)
+    ctx.fillStyle = 'rgba(255,255,255,0.26)';
+    ctx.fillRect(px + 1, py + 1, CELL - 2, 3);
+    ctx.fillRect(px + 1, py + 1, 3, CELL - 2);
+    // Bottom-right shadow (dark edge)
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.fillRect(px + 1, py + CELL - 4, CELL - 2, 3);
+    ctx.fillRect(px + CELL - 4, py + 1, 3, CELL - 2);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPreview(type, by, sz) {
+    if (!type) return;
+    const cells = SHAPES[type][0];
+    const color = COLORS[type];
+    let minR = 4, maxR = 0, minC = 4, maxC = 0;
+    for (const [r, c] of cells) {
+      minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+      minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+    }
+    const pw = (maxC - minC + 1) * sz;
+    const ox = BOARD_W + (SIDE_W - pw) / 2;
+    for (const [r, c] of cells) {
+      const px = ox + (c - minC) * sz, py = by + (r - minR) * sz;
+      ctx.fillStyle = color;
+      ctx.fillRect(px + 1, py + 1, sz - 2, sz - 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.26)';
+      ctx.fillRect(px + 1, py + 1, sz - 2, 2);
+      ctx.fillRect(px + 1, py + 1, 2, sz - 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillRect(px + 1, py + sz - 3, sz - 2, 2);
+      ctx.fillRect(px + sz - 3, py + 1, 2, sz - 2);
+    }
+  }
+
+  function label(text, x, y, size, color) {
+    ctx.fillStyle = color;
+    ctx.font      = `${size}px "Courier New"`;
+    ctx.fillText(text, x, y);
+  }
+
+  function render() {
+    // Page bg
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, W, H);
+
+    // Board bg
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fillRect(0, 0, BOARD_W, H);
+
+    // Grid lines
+    ctx.strokeStyle = '#1c1c2e';
+    ctx.lineWidth   = 1;
+    for (let c = 1; c < COLS; c++) {
+      ctx.beginPath(); ctx.moveTo(c * CELL + 0.5, 0); ctx.lineTo(c * CELL + 0.5, H); ctx.stroke();
+    }
+    for (let r = 1; r < ROWS; r++) {
+      ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(BOARD_W, r * CELL + 0.5); ctx.stroke();
+    }
+
+    // Locked cells
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        if (board[r][c]) drawCell(c, r, board[r][c]);
+
+    // Ghost piece
+    if (state === 'running' || state === 'paused') {
+      const gy = ghostY();
+      if (gy > curY) {
+        for (const [r, c] of curCells) {
+          const row = gy + r, col = curX + c;
+          if (row >= 0 && row < ROWS) {
+            ctx.globalAlpha = 0.14;
+            ctx.fillStyle   = COLORS[curType];
+            ctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+    }
+
+    // Active piece
+    if (state === 'running' || state === 'paused') {
+      for (const [r, c] of curCells) {
+        const row = curY + r, col = curX + c;
+        if (row >= 0 && row < ROWS) drawCell(col, row, COLORS[curType]);
+      }
+    }
+
+    // ── Sidebar ────────────────────────────────────────────────────────────
+    const sx = BOARD_W + 14;
+
+    ctx.fillStyle = '#0f0f22';
+    ctx.fillRect(BOARD_W, 0, SIDE_W, H);
+    ctx.fillStyle = '#1e1e3a';
+    ctx.fillRect(BOARD_W, 0, 1, H);
+
+    // Score / Level / Lines
+    label('SCORE',       sx, 28,  10, '#484880');
+    label(String(score), sx, 50,  19, '#e8e8ff');
+    label('LEVEL',       sx, 78,  10, '#484880');
+    label(String(level), sx, 100, 19, '#e040fb');
+    label('LINES',       sx, 128, 10, '#484880');
+    label(String(lines), sx, 150, 19, '#00e5ff');
+
+    // Separator
+    ctx.fillStyle = '#1e1e3a';
+    ctx.fillRect(BOARD_W + 1, 162, SIDE_W - 1, 1);
+
+    // Next
+    label('NEXT', sx, 178, 10, '#484880');
+    drawPreview(nextType, 184, 20);
+
+    // Separator
+    ctx.fillStyle = '#1e1e3a';
+    ctx.fillRect(BOARD_W + 1, 298, SIDE_W - 1, 1);
+
+    // Hold
+    label(holdUsed ? 'HOLD ×' : 'HOLD', sx, 314, 10, holdUsed ? '#2e2e50' : '#484880');
+    if (held) {
+      ctx.globalAlpha = holdUsed ? 0.35 : 1;
+      drawPreview(held, 320, 20);
+      ctx.globalAlpha = 1;
+    } else {
+      label('—', BOARD_W + SIDE_W / 2 - 4, 360, 16, '#282848');
+    }
+
+    // Separator
+    ctx.fillStyle = '#1e1e3a';
+    ctx.fillRect(BOARD_W + 1, 448, SIDE_W - 1, 1);
+
+    // Controls
+    const ctrlColor = '#32325a';
+    const hints = ['← →  MOVE', '↑    ROTATE CW', 'Z    ROTATE CCW', '↓    SOFT DROP', 'SPC  HARD DROP', 'SHF  HOLD', 'P    PAUSE'];
+    hints.forEach((h, i) => label(h, sx, 464 + i * 14, 9, ctrlColor));
+
+    // ── Overlays ──────────────────────────────────────────────────────────
+    if (state === 'idle')   drawOverlay('TETRIS',    'PRESS START TO PLAY');
+    if (state === 'paused') drawOverlay('PAUSED',    'PRESS P TO RESUME');
+    if (state === 'dead')   drawOverlay('GAME OVER', `SCORE  ${score}`);
+  }
+
+  function drawOverlay(title, sub) {
+    ctx.fillStyle = 'rgba(10,10,15,0.86)';
+    ctx.fillRect(0, 0, BOARD_W, H);
+    ctx.textAlign   = 'center';
+    ctx.shadowColor = '#e040fb';
+    ctx.shadowBlur  = 28;
+    ctx.fillStyle   = '#e040fb';
+    ctx.font        = 'bold 38px "Courier New"';
+    ctx.fillText(title, BOARD_W / 2, H / 2 - 14);
+    ctx.shadowBlur  = 0;
+    ctx.fillStyle   = '#5858a0';
+    ctx.font        = '14px "Courier New"';
+    ctx.fillText(sub, BOARD_W / 2, H / 2 + 18);
+    ctx.textAlign   = 'left';
+  }
+
+  // ── Input ──────────────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.repeat) return;
+
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      if (state === 'running' || state === 'paused') togglePause();
+      return;
+    }
+    if (state !== 'running') return;
+
+    switch (e.code) {
+      case 'ArrowLeft':  case 'KeyA': moveH(-1); startDAS('L'); break;
+      case 'ArrowRight': case 'KeyD': moveH(1);  startDAS('R'); break;
+      case 'ArrowDown':  case 'KeyS': e.preventDefault(); softDrop(); startDAS('D'); break;
+      case 'ArrowUp':    case 'KeyW': e.preventDefault(); rotate(1);  break;
+      case 'KeyZ':                    rotate(-1); break;
+      case 'Space':      e.preventDefault(); hardDrop(); break;
+      case 'ShiftLeft':  case 'ShiftRight': case 'KeyC': e.preventDefault(); hold(); break;
+    }
+  });
+
+  document.addEventListener('keyup', e => {
+    const map = { ArrowLeft:'L', KeyA:'L', ArrowRight:'R', KeyD:'R', ArrowDown:'D', KeyS:'D' };
+    if (map[e.code] && dasDir === map[e.code]) stopDAS();
+  });
+
+  // ── Buttons ────────────────────────────────────────────────────────────────
+  document.getElementById('btnStart').onclick = () => {
+    if (state === 'idle' || state === 'dead') {
+      init();
+      state    = 'running';
+      lastTick = performance.now();
+    }
+  };
+
+  document.getElementById('btnPause').onclick = () => {
+    if (state === 'running' || state === 'paused') togglePause();
+  };
+
+  document.getElementById('btnRestart').onclick = () => {
+    stopDAS();
+    init();
+    state    = 'running';
+    lastTick = performance.now();
+  };
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────────
+  board    = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  score    = 0; level = 1; lines = 0;
+  held     = null; holdUsed = false;
+  nextType = randPiece();
+  curType  = randPiece(); curRot = 0; curCells = SHAPES[curType][0]; curX = 3; curY = 0;
+  lockStart = null; tickMs = 800;
+  state    = 'idle';
+  requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
