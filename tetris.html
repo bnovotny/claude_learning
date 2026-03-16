@@ -28,10 +28,55 @@
       margin-bottom: 18px;
     }
 
-    canvas {
+    .game-layout {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 140px;
+    }
+
+    .panel {
+      background: #0f0f22;
+      border: 1px solid #daa52055;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .panel-label {
+      font-size: 10px;
+      color: #a07818;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .panel-value {
+      font-size: 20px;
+      color: #daa520;
+      letter-spacing: 0.05em;
+    }
+
+    .ctrl-list div {
+      font-size: 9px;
+      color: #9090b8;
+      line-height: 1.75;
+    }
+
+    #holdCv, #nextCv {
+      display: block;
+      margin: 4px auto 0;
+    }
+
+    canvas#c {
       display: block;
       border: 1px solid #22224a;
-      box-shadow: 0 0 60px #daa52012, 0 0 24px #00000088;
+      box-shadow: 0 0 40px #daa52010, 0 0 24px #00000088;
     }
 
     .buttons {
@@ -68,7 +113,52 @@
 </head>
 <body>
   <h1>TETRIS</h1>
-  <canvas id="c"></canvas>
+
+  <div class="game-layout">
+    <!-- Left sidebar: Hold + Controls -->
+    <div class="sidebar">
+      <div class="panel">
+        <div class="panel-label" id="holdLabel">HOLD</div>
+        <canvas id="holdCv" width="120" height="72"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-label">CONTROLS</div>
+        <div class="ctrl-list">
+          <div>← →&nbsp;&nbsp;MOVE</div>
+          <div>↑&nbsp;&nbsp;&nbsp;&nbsp;ROTATE CW</div>
+          <div>Z&nbsp;&nbsp;&nbsp;&nbsp;ROTATE CCW</div>
+          <div>↓&nbsp;&nbsp;&nbsp;&nbsp;SOFT DROP</div>
+          <div>SPC&nbsp;&nbsp;HARD DROP</div>
+          <div>SHF&nbsp;&nbsp;HOLD</div>
+          <div>P&nbsp;&nbsp;&nbsp;&nbsp;PAUSE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Board canvas -->
+    <canvas id="c"></canvas>
+
+    <!-- Right sidebar: Next + Stats -->
+    <div class="sidebar">
+      <div class="panel">
+        <div class="panel-label">NEXT</div>
+        <canvas id="nextCv" width="120" height="72"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-label">SCORE</div>
+        <div class="panel-value" id="scoreEl">0</div>
+      </div>
+      <div class="panel">
+        <div class="panel-label">LEVEL</div>
+        <div class="panel-value" id="levelEl">1</div>
+      </div>
+      <div class="panel">
+        <div class="panel-label">LINES</div>
+        <div class="panel-value" id="linesEl">0</div>
+      </div>
+    </div>
+  </div>
+
   <div class="buttons">
     <button id="btnStart">START</button>
     <button id="btnPause">PAUSE</button>
@@ -78,15 +168,10 @@
 
   <script>
   // ── Constants ──────────────────────────────────────────────────────────────
-  const COLS    = 10, ROWS = 20, CELL = 32;
-  const LEFT_W  = 160;
-  const RIGHT_W = 160;
-  const BOARD_W = COLS * CELL;          // 320
-  const BOARD_X = LEFT_W;               // board left edge = 160
-  const W       = LEFT_W + BOARD_W + RIGHT_W; // 640
-  const H       = ROWS * CELL;          // 640
-  const LEFT_CX  = LEFT_W / 2;                      // 80  — center of left sidebar
-  const RIGHT_CX = LEFT_W + BOARD_W + RIGHT_W / 2;  // 560 — center of right sidebar
+  const COLS = 10, ROWS = 20, CELL = 32;
+  const BOARD_W = COLS * CELL;  // 320
+  const W       = BOARD_W;
+  const H       = ROWS * CELL;  // 640
   const LOCK_DELAY = 480;
 
   const COLORS = {
@@ -142,11 +227,21 @@
   const TYPES       = Object.keys(SHAPES);
   const LINE_SCORES = [0, 100, 300, 500, 800];
 
-  // ── Canvas ─────────────────────────────────────────────────────────────────
-  const canvas = document.getElementById('c');
+  // ── Canvas & DOM refs ──────────────────────────────────────────────────────
+  const canvas  = document.getElementById('c');
   canvas.width  = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
+
+  const holdCv  = document.getElementById('holdCv');
+  const holdCtx = holdCv.getContext('2d');
+  const nextCv  = document.getElementById('nextCv');
+  const nextCtx = nextCv.getContext('2d');
+
+  const scoreEl  = document.getElementById('scoreEl');
+  const levelEl  = document.getElementById('levelEl');
+  const linesEl  = document.getElementById('linesEl');
+  const holdLabel = document.getElementById('holdLabel');
 
   // ── State ──────────────────────────────────────────────────────────────────
   let board, state, score, level, lines;
@@ -337,34 +432,19 @@
     render();
   }
 
-  // ── Rendering helpers ──────────────────────────────────────────────────────
+  // ── Rendering ──────────────────────────────────────────────────────────────
 
-  // Draw a single tetromino cell on the board
+  // Flat cell — no bevel
   function drawCell(col, row, color, alpha) {
-    const px = BOARD_X + col * CELL, py = row * CELL;
     ctx.globalAlpha = alpha ?? 1;
     ctx.fillStyle   = color;
-    ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.26)';
-    ctx.fillRect(px + 1, py + 1, CELL - 2, 3);
-    ctx.fillRect(px + 1, py + 1, 3, CELL - 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.38)';
-    ctx.fillRect(px + 1, py + CELL - 4, CELL - 2, 3);
-    ctx.fillRect(px + CELL - 4, py + 1, 3, CELL - 2);
+    ctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
     ctx.globalAlpha = 1;
   }
 
-  // Draw a rounded panel box
-  function drawPanel(x, y, w, h) {
-    ctx.fillStyle = '#0f0f22';
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.fill();
-    ctx.strokeStyle = '#daa52055';
-    ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
-  }
-
-  // Draw a piece preview centered horizontally at centerX, starting at topY
-  function drawPreview(type, centerX, topY, sz, alpha) {
+  // Draw a piece preview centered in a small canvas
+  function drawPreviewCanvas(c2, cw, ch, type, alpha) {
+    c2.clearRect(0, 0, cw, ch);
     if (!type) return;
     const cells = SHAPES[type][0];
     const color = COLORS[type];
@@ -373,55 +453,44 @@
       minR = Math.min(minR, r); maxR = Math.max(maxR, r);
       minC = Math.min(minC, c); maxC = Math.max(maxC, c);
     }
+    const sz = 18;
     const pw = (maxC - minC + 1) * sz;
     const ph = (maxR - minR + 1) * sz;
-    const ox = centerX - pw / 2;
-    const oy = topY;
-    ctx.globalAlpha = alpha ?? 1;
+    const ox = (cw - pw) / 2;
+    const oy = (ch - ph) / 2;
+    c2.globalAlpha = alpha ?? 1;
     for (const [r, c] of cells) {
-      const px = ox + (c - minC) * sz, py = oy + (r - minR) * sz;
-      ctx.fillStyle = color;
-      ctx.fillRect(px + 1, py + 1, sz - 2, sz - 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.26)';
-      ctx.fillRect(px + 1, py + 1, sz - 2, 2);
-      ctx.fillRect(px + 1, py + 1, 2, sz - 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.38)';
-      ctx.fillRect(px + 1, py + sz - 3, sz - 2, 2);
-      ctx.fillRect(px + sz - 3, py + 1, 2, sz - 2);
+      c2.fillStyle = color;
+      c2.fillRect(ox + (c - minC) * sz + 1, oy + (r - minR) * sz + 1, sz - 2, sz - 2);
     }
-    ctx.globalAlpha = 1;
+    c2.globalAlpha = 1;
   }
 
-  function lbl(text, x, y, size, color) {
-    ctx.fillStyle = color;
-    ctx.font      = `${size}px "Courier New"`;
-    ctx.fillText(text, x, y);
+  function updateHUD() {
+    scoreEl.textContent = score;
+    levelEl.textContent = level;
+    linesEl.textContent = lines;
+    holdLabel.textContent = holdUsed ? 'HOLD ×' : 'HOLD';
+    holdLabel.style.color = holdUsed ? '#5a4400' : '#a07818';
+    drawPreviewCanvas(holdCtx, holdCv.width, holdCv.height, held, holdUsed ? 0.35 : 1);
+    drawPreviewCanvas(nextCtx, nextCv.width, nextCv.height, nextType, 1);
   }
 
-  // ── Main render ────────────────────────────────────────────────────────────
   function render() {
-    // Canvas background
+    // Board background
     ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, W, H);
-
-    // Board background
     ctx.fillStyle = '#0d0d1a';
-    ctx.fillRect(BOARD_X, 0, BOARD_W, H);
+    ctx.fillRect(0, 0, W, H);
 
     // Grid lines
     ctx.strokeStyle = '#1c1c2e';
     ctx.lineWidth   = 1;
     for (let c = 1; c < COLS; c++) {
-      ctx.beginPath();
-      ctx.moveTo(BOARD_X + c * CELL + 0.5, 0);
-      ctx.lineTo(BOARD_X + c * CELL + 0.5, H);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(c * CELL + 0.5, 0); ctx.lineTo(c * CELL + 0.5, H); ctx.stroke();
     }
     for (let r = 1; r < ROWS; r++) {
-      ctx.beginPath();
-      ctx.moveTo(BOARD_X, r * CELL + 0.5);
-      ctx.lineTo(BOARD_X + BOARD_W, r * CELL + 0.5);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(W, r * CELL + 0.5); ctx.stroke();
     }
 
     // Locked cells
@@ -433,15 +502,14 @@
     if (state === 'running' || state === 'paused') {
       const gy = ghostY();
       if (gy > curY) {
+        ctx.globalAlpha = 0.14;
+        ctx.fillStyle   = COLORS[curType];
         for (const [r, c] of curCells) {
           const row = gy + r, col = curX + c;
-          if (row >= 0 && row < ROWS) {
-            ctx.globalAlpha = 0.14;
-            ctx.fillStyle   = COLORS[curType];
-            ctx.fillRect(BOARD_X + col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
-            ctx.globalAlpha = 1;
-          }
+          if (row >= 0 && row < ROWS)
+            ctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
         }
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -453,57 +521,10 @@
       }
     }
 
-    // ── LEFT SIDEBAR ────────────────────────────────────────────────────────
+    // HUD (DOM + preview canvases)
+    updateHUD();
 
-    // HOLD panel
-    drawPanel(8, 8, 144, 130);
-    lbl('HOLD', 20, 26, 10, holdUsed ? '#5a4400' : '#a07818');
-    if (held) {
-      drawPreview(held, LEFT_CX, 36, 20, holdUsed ? 0.35 : 1);
-    } else {
-      ctx.textAlign = 'center';
-      lbl('—', LEFT_CX, 82, 16, '#252540');
-      ctx.textAlign = 'left';
-    }
-
-    // CONTROLS panel
-    drawPanel(8, 146, 144, 146);
-    lbl('CONTROLS', 20, 164, 10, '#a07818');
-    const hints = [
-      '← →  MOVE',
-      '↑    ROTATE CW',
-      'Z    ROTATE CCW',
-      '↓    SOFT DROP',
-      'SPC  HARD DROP',
-      'SHF  HOLD',
-      'P    PAUSE',
-    ];
-    hints.forEach((h, i) => lbl(h, 20, 180 + i * 15, 9, '#484860'));
-
-    // ── RIGHT SIDEBAR ───────────────────────────────────────────────────────
-    const rx = LEFT_W + BOARD_W + 8; // right panel left edge
-
-    // NEXT panel
-    drawPanel(rx, 8, 144, 130);
-    lbl('NEXT', rx + 12, 26, 10, '#a07818');
-    drawPreview(nextType, RIGHT_CX, 36, 20);
-
-    // SCORE panel
-    drawPanel(rx, 146, 144, 64);
-    lbl('SCORE', rx + 12, 164, 10, '#a07818');
-    lbl(String(score), rx + 12, 196, 19, '#e8e8ff');
-
-    // LEVEL panel
-    drawPanel(rx, 218, 144, 64);
-    lbl('LEVEL', rx + 12, 236, 10, '#a07818');
-    lbl(String(level), rx + 12, 268, 19, '#daa520');
-
-    // LINES panel
-    drawPanel(rx, 290, 144, 64);
-    lbl('LINES', rx + 12, 308, 10, '#a07818');
-    lbl(String(lines), rx + 12, 340, 19, '#00e5ff');
-
-    // ── Overlays ──────────────────────────────────────────────────────────
+    // Overlays
     if (state === 'idle')   drawOverlay('TETRIS',    'PRESS START TO PLAY');
     if (state === 'paused') drawOverlay('PAUSED',    'PRESS P TO RESUME');
     if (state === 'dead')   drawOverlay('GAME OVER', `SCORE  ${score}`);
@@ -511,17 +532,17 @@
 
   function drawOverlay(title, sub) {
     ctx.fillStyle = 'rgba(10,10,15,0.86)';
-    ctx.fillRect(BOARD_X, 0, BOARD_W, H);
+    ctx.fillRect(0, 0, W, H);
     ctx.textAlign   = 'center';
     ctx.shadowColor = '#daa520';
     ctx.shadowBlur  = 28;
     ctx.fillStyle   = '#daa520';
     ctx.font        = 'bold 38px "Courier New"';
-    ctx.fillText(title, BOARD_X + BOARD_W / 2, H / 2 - 14);
+    ctx.fillText(title, W / 2, H / 2 - 14);
     ctx.shadowBlur  = 0;
     ctx.fillStyle   = '#5858a0';
     ctx.font        = '14px "Courier New"';
-    ctx.fillText(sub, BOARD_X + BOARD_W / 2, H / 2 + 18);
+    ctx.fillText(sub, W / 2, H / 2 + 18);
     ctx.textAlign   = 'left';
   }
 
@@ -579,6 +600,7 @@
   curType  = randPiece(); curRot = 0; curCells = SHAPES[curType][0]; curX = 3; curY = 0;
   lockStart = null; tickMs = 800;
   state    = 'idle';
+  updateHUD();
   requestAnimationFrame(loop);
   </script>
 </body>
